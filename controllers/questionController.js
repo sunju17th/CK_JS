@@ -1,74 +1,100 @@
 import Question from '../models/Question.js';
 
+// @desc    Create a new question
+// @route   POST /api/questions
+// @access  Private/Teacher
 export const createQuestion = async (req, res) => {
     try {
-        const question = await Question.create(req.body);
-        res.status(201).json(question);
+        const questionData = {
+            content: req.body.content,
+            options: req.body.options,
+            correct_answer: req.body.correct_answer,
+            points: req.body.points,
+        };
+
+        const newQuestion = await Question.create(questionData);
+        return res.status(201).json(newQuestion);
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        return res.status(400).json({ message: error.message });
     }
 };
 
+// @desc    Get all questions
+// @route   GET /api/questions
+// @access  Private/Teacher
 export const getQuestions = async (req, res) => {
     try {
-        const pageSize = Number(req.query.limit) || 10;
-        const page = Number(req.query.page) || 1;
-
-        const count = await Question.countDocuments({});
-        const questions = await Question.find({})
-            .limit(pageSize)
-            .skip(pageSize * (page - 1));
-        
-        res.json({ questions, page, pages: Math.ceil(count / pageSize), total: count });
+        const questions = await Question.find({});
+        return res.json(questions);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
+// @desc    Get a single question by ID
+// @route   GET /api/questions/:id
+// @access  Private/Teacher
 export const getQuestionById = async (req, res) => {
     try {
         const question = await Question.findById(req.params.id);
-        if (question) {
-            res.json(question);
-        } else {
-            res.status(404).json({ message: 'Question not found' });
+
+        if (!question) {
+            return res.status(404).json({ message: 'Question not found' });
         }
+
+        return res.json(question);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
+// @desc    Update a question
+// @route   PUT /api/questions/:id
+// @access  Private/Teacher
 export const updateQuestion = async (req, res) => {
     try {
         const question = await Question.findById(req.params.id);
 
-        if (question) {
-            question.content = req.body.content || question.content;
-            question.options = req.body.options || question.options;
-            question.correct_answer = req.body.correct_answer || question.correct_answer;
-            question.points = req.body.points || question.points;
-
-            const updatedQuestion = await question.save();
-            res.json(updatedQuestion);
-        } else {
-            res.status(404).json({ message: 'Question not found' });
+        if (!question) {
+            return res.status(404).json({ message: 'Question not found' });
         }
+
+        const { content, options, correct_answer, points } = req.body;
+
+        if (content !== undefined) {
+            question.content = content;
+        }
+        if (options !== undefined) {
+            question.options = options;
+        }
+        if (correct_answer !== undefined) {
+            question.correct_answer = correct_answer;
+        }
+        if (points !== undefined) {
+            question.points = points;
+        }
+
+        const updatedQuestion = await question.save();
+        return res.json(updatedQuestion);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
+// @desc    Delete a question
+// @route   DELETE /api/questions/:id
+// @access  Private/Teacher
 export const deleteQuestion = async (req, res) => {
     try {
         const question = await Question.findById(req.params.id);
 
-        if (question) {
-            await question.deleteOne();
-            res.json({ message: 'Question removed' });
-        } else {
-            res.status(404).json({ message: 'Question not found' });
+        if (!question) {
+            return res.status(404).json({ message: 'Question not found' });
         }
+
+        await question.deleteOne();
+        return res.json({ message: 'Question removed' });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
