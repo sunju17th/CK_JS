@@ -1,6 +1,10 @@
 import Exam from '../models/Exam.js';
 import ExamSession from '../models/ExamSession.js';
 
+// Controller xử lý các kỳ thi và phiên thi
+// - Giáo viên tạo, cập nhật, xóa kỳ thi
+// - Sinh viên xem và tham gia kỳ thi
+
 // @desc    Create a new exam
 // @route   POST /api/exams
 // @access  Private/Teacher
@@ -26,17 +30,17 @@ export const getExams = async (req, res) => {
     try {
         let exams;
 
-        // Giáo viên chỉ xem các kỳ thi của chính mình
+        // Nếu là giáo viên, chỉ lấy các kỳ thi do giáo viên đó tạo
         if (req.user.role === 'teacher') {
             exams = await Exam.find({ teacher_id: req.user._id })
-                .populate('questions', '-correct_answer');
+                .populate('questions', '-correct_answer'); // Lấy câu hỏi nhưng ẩn đáp án đúng
         }
-        // Sinh viên chỉ xem các kỳ thi được phép tham gia
+        // Nếu là sinh viên, chỉ lấy các kỳ thi mà sinh viên đó được phép tham gia
         else if (req.user.role === 'student') {
             exams = await Exam.find({ allowed_students: req.user._id })
-                .populate('questions', '-correct_answer');
+                .populate('questions', '-correct_answer'); // Lấy câu hỏi nhưng ẩn đáp án đúng
         } else {
-            return res.status(403).json({ message: 'Invalid user role' });
+            return res.status(403).json({ message: 'Vai trò người dùng không hợp lệ' });
         }
 
         res.json(exams);
@@ -133,13 +137,14 @@ export const joinExam = async (req, res) => {
             return res.status(403).json({ message: 'Bạn không có quyền tham gia kỳ thi này.' });
         }
 
-        // Kiểm tra xem kỳ thi đã bắt đầu và chưa kết thúc
+        // Kiểm tra xem kỳ thi có đang diễn ra hay không
         const now = new Date();
         if (now < exam.start_time || now > exam.end_time) {
             return res.status(403).json({ message: 'Kỳ thi hiện chưa bắt đầu hoặc đã kết thúc.' });
         }
 
-        // Tìm session đang tồn tại để cho phép tiếp tục thi
+        // Tìm xem sinh viên đã có session thi chưa
+        // Nếu chưa có, tạo mới. Nếu có rồi thì trả về session cũ để tiếp tục.
         let session = await ExamSession.findOne({ exam_id: exam._id, student_id: req.user._id });
         if (!session) {
             session = await ExamSession.create({

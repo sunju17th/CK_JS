@@ -24,6 +24,7 @@ export const createQuestion = async (req, res) => {
 // @access  Private/Teacher
 export const getQuestions = async (req, res) => {
     try {
+        // Lấy tất cả câu hỏi trong database
         const questions = await Question.find({});
         return res.json(questions);
     } catch (error) {
