@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 // Hàm tạo token JWT dùng để xác thực (authentication)
 // khi người dùng đăng ký hoặc đăng nhập thành công.
@@ -14,19 +15,24 @@ const generateToken = (id) => {
 // @access  Public
 export const registerUser = async (req, res) => {
     try {
-        // Lấy dữ liệu từ body của request
         const { username, password, role, full_name } = req.body;
-
-        // Kiểm tra username đã có trong database chưa
         const userExists = await User.findOne({ username });
         if (userExists) {
             return res.status(400).json({ message: 'User already exists' });
         }
 
-        // Tạo user mới
-        const user = await User.create({ username, password, role, full_name });
+        // TỰ TAY MÃ HÓA MẬT KHẨU TRƯỚC KHI TẠO USER
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Nếu tạo thành công, trả dữ liệu user và token về cho client
+        // Lưu user với mật khẩu đã mã hóa (hashedPassword)
+        const user = await User.create({ 
+            username, 
+            password: hashedPassword, 
+            role, 
+            full_name 
+        });
+
         if (user) {
             res.status(201).json({
                 _id: user._id,
@@ -43,27 +49,38 @@ export const registerUser = async (req, res) => {
     }
 };
 
+
 // @desc    Đăng nhập và trả về token
 // @route   POST /api/users/login
 // @access  Public
 export const loginUser = async (req, res) => {
     try {
         const { username, password } = req.body;
-
-        // Tìm user theo username
+        
+        // 1. Tìm user trong database
         const user = await User.findOne({ username });
 
-        // Nếu user tồn tại và password khớp thì login thành công
-        if (user && (await user.matchPassword(password))) {
-            res.json({
-                _id: user._id,
-                username: user.username,
-                role: user.role,
-                full_name: user.full_name,
-                token: generateToken(user._id),
-            });
+        // 2. Nếu tìm thấy user, tiến hành so sánh mật khẩu bằng bcrypt
+        if (user) {
+            // bcrypt.compare(mật_khẩu_gửi_lên, mật_khẩu_đã_băm_trong_db)
+            const isMatch = await bcrypt.compare(password, user.password);
+
+            if (isMatch) {
+                // Đăng nhập thành công
+                res.json({
+                    _id: user._id,
+                    username: user.username,
+                    role: user.role,
+                    full_name: user.full_name,
+                    token: generateToken(user._id),
+                });
+            } else {
+                // Mật khẩu sai
+                res.status(401).json({ message: 'Sai mật khẩu!' });
+            }
         } else {
-            res.status(401).json({ message: 'Invalid username or password' });
+            // Không tìm thấy user
+            res.status(401).json({ message: 'Tài khoản không tồn tại!' });
         }
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -109,18 +126,27 @@ export const updateUser = async (req, res) => {
         const user = await User.findById(req.params.id);
 
         if (user) {
-            // Chỉ cập nhật nếu có dữ liệu mới gửi lên
-            user.full_name = req.body.full_name || user.full_name;
-            user.role = req.body.role || user.role;
-
-            // Nếu có password mới thì cập nhật password
-            if (req.body.password) {
-                user.password = req.body.password;
+            // Kiểm tra: Nếu là sinh viên VÀ ID đang muốn sửa KHÔNG PHẢI ID của chính mình -> Báo lỗi ngay
+            if (req.user.role === 'student' && req.user._id.toString() !== user._id.toString()) {
+                return res.status(403).json({ message: 'Lỗi bảo mật: Bạn không có quyền sửa thông tin của người khác!' });
             }
 
-            // Lưu thay đổi vào database
-            const updatedUser = await user.save();
+            // 2. Cập nhật thông tin cơ bản
+            user.full_name = req.body.full_name || user.full_name;
+            
+            // Chỉ giáo viên (teacher) mới có quyền đổi 'role' của tài khoản
+            if (req.user.role === 'teacher' && req.body.role) {
+                user.role = req.body.role;
+            }
 
+            // 4. Đổi mật khẩu 
+            if (req.body.password) {
+                const salt = await bcrypt.genSalt(10);
+                user.password = await bcrypt.hash(req.body.password, salt);
+            }
+
+            const updatedUser = await user.save();
+            
             res.json({
                 _id: updatedUser._id,
                 username: updatedUser.username,
@@ -128,7 +154,7 @@ export const updateUser = async (req, res) => {
                 role: updatedUser.role,
             });
         } else {
-            res.status(404).json({ message: 'User not found' });
+            res.status(404).json({ message: 'Không tìm thấy người dùng' });
         }
     } catch (error) {
         res.status(500).json({ message: error.message });
