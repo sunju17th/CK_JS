@@ -51,18 +51,43 @@ export const getExams = async (req, res) => {
 
 // @desc    Get exam details by ID
 // @route   GET /api/exams/:id
-// @access  Private
+// @access  Private (Teacher owner or Allowed Student)
 export const getExamById = async (req, res) => {
     try {
-        const exam = await Exam.findById(req.params.id)
-            .populate('questions', '-correct_answer') // Ẩn đáp án đúng để bảo mật
-            .populate('allowed_students', 'full_name username role');
+        // 1. Tìm bài thi trước để lấy thông tin về chủ sở hữu và danh sách sinh viên
+        const exam = await Exam.findById(req.params.id);
 
         if (!exam) {
-            return res.status(404).json({ message: 'Exam not found' });
+            return res.status(404).json({ message: 'Không tìm thấy bài thi' });
         }
 
-        res.json(exam);
+        // 2. KIỂM TRA QUYỀN TRUY CẬP
+        const isTeacherOwner = req.user.role === 'teacher' && exam.teacher_id.toString() === req.user._id.toString();
+        
+        // Kiểm tra xem ID sinh viên có trong mảng allowed_students không
+        const isAllowedStudent = req.user.role === 'student' && exam.allowed_students.includes(req.user._id);
+
+        if (!isTeacherOwner && !isAllowedStudent) {
+            return res.status(403).json({ message: 'Bạn không có quyền truy cập vào bài thi này' });
+        }
+
+        // 3. PHÂN TÁCH DỮ LIỆU TRẢ VỀ (Tối ưu cho từng đối tượng)
+        let finalExam;
+
+        if (isTeacherOwner) {
+            // Nếu là giáo viên tạo đề: Cho phép xem toàn bộ, bao gồm cả đáp án đúng để họ kiểm tra đề
+            finalExam = await Exam.findById(req.params.id)
+                .populate('questions') 
+                .populate('allowed_students', 'full_name username role');
+        } else {
+            // Nếu là sinh viên: Bắt buộc ẩn trường 'correct_answer'
+            finalExam = await Exam.findById(req.params.id)
+                .populate('questions', '-correct_answer')
+                .populate('allowed_students', 'full_name username role');
+        }
+
+        res.json(finalExam);
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -70,18 +95,18 @@ export const getExamById = async (req, res) => {
 
 // @desc    Update exam information
 // @route   PUT /api/exams/:id
-// @access  Private/Teacher
+// @access  Private/Teacher (Chỉ giáo viên tạo kỳ thi mới được sửa)
 export const updateExam = async (req, res) => {
     try {
         const exam = await Exam.findById(req.params.id);
 
         if (!exam) {
-            return res.status(404).json({ message: 'Exam not found' });
+            return res.status(404).json({ message: 'Không tìm thấy bài thi' });
         }
 
         // Chỉ giáo viên tạo kỳ thi mới được sửa
         if (exam.teacher_id.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'Not authorized to update this exam' });
+            return res.status(403).json({ message: 'Bạn không có quyền sửa bài thi này' });
         }
 
         // Cập nhật các trường chỉ khi nhận được giá trị mới từ client
@@ -128,7 +153,7 @@ export const joinExam = async (req, res) => {
     try {
         const exam = await Exam.findById(req.params.id);
         if (!exam) {
-            return res.status(404).json({ message: 'Exam not found' });
+            return res.status(404).json({ message: 'Không tìm thấy bài thi' });
         }
 
         // Kiểm tra xem sinh viên có nằm trong danh sách được phép tham gia
