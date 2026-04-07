@@ -108,7 +108,7 @@ const importData = async () => {
                 total_score: 2, answers: badAnswers, 
                 proctoring_logs: [
                     { event_type: 'window_blur', description: 'Rời chuột khỏi bài thi', timestamp: new Date() },
-                    { event_type: 'reconnect', description: 'Kết nối lại sau mất kết nối', timestamp: new Date() }
+                    { event_type: 'reconnected', description: 'Kết nối lại sau mất kết nối', timestamp: new Date() }
                 ]
             },
             {
