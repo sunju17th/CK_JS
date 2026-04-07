@@ -14,16 +14,14 @@ export const protect = async (req, res, next) => {
 
             // Tìm user và gắn vào req.user (không trả về pass)
             req.user = await User.findById(decoded.id).select('-password');
-            next();
+            return next();
         } catch (error) {
             console.error(error);
-            res.status(401).json({ message: 'Không có quyền truy cập, token không hợp lệ' });
+            return res.status(401).json({ message: 'Không có quyền truy cập, token không hợp lệ' });
         }
     }
 
-    if (!token) {
-        res.status(401).json({ message: 'Không có quyền truy cập, không tìm thấy token' });
-    }
+    return res.status(401).json({ message: 'Không có quyền truy cập, không tìm thấy token' });
 };
 
 /* 
