@@ -17,6 +17,11 @@ const examSchema = new mongoose.Schema({
         type: Date,
         required: [true, 'Vui lòng nhập thời gian kết thúc'],
     },
+    max_violations: { 
+        type: Number, 
+        default: 3, // Mặc định cho phép 3 lần, quá 3 lần là khóa
+        required: [true, 'Vui lòng cài đặt số lần vi phạm tối đa']
+    },
     teacher_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
