@@ -18,7 +18,7 @@ const answerSchema = new mongoose.Schema({
 const proctoringLogSchema = new mongoose.Schema({
     event_type: {
         type: String,
-        enum: ['tab_switch', 'window_blur', 'reconnect'], // Liệt kê cố định các loại vi phạm
+        enum: ['tab_switch', 'window_blur', 'reconnected'], // Liệt kê cố định các loại vi phạm
         required: true,
     },
     timestamp: {
@@ -50,7 +50,7 @@ const examSessionSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['ongoing', 'submitted', 'abandoned'],
+        enum: ['ongoing', 'submitted', 'abandoned', 'locked'],
         default: 'ongoing',
     },
     total_score: {
