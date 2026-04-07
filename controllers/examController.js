@@ -211,3 +211,48 @@ export const joinExam = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+// @desc    Lấy danh sách TẤT CẢ phiên thi của một kỳ thi cụ thể
+// @route   GET /api/exams/:id/sessions
+// @access  Private/Teacher
+export const getExamSessions = async (req, res) => {
+    try {
+        const examId = req.params.id;
+
+        // Tìm bài thi để xác thực thông tin
+        const exam = await Exam.findById(examId);
+        if (!exam) {
+            return res.status(404).json({ message: 'Không tìm thấy bài thi' });
+        }
+
+        // Chỉ cho phép truy cập là người tạo đề
+        if (req.user.role !== 'teacher' || exam.teacher_id.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ message: 'Bảo mật: Chỉ giáo viên chủ trì mới được xem danh sách thi này!' });
+        }
+
+        // Truy vấn danh sách các phiên thi thuộc về kỳ thi này
+        const sessions = await ExamSession.find({ exam_id: examId })
+            // Populate để lấy tên và mã SV, giúp giáo viên biết ai đang thi
+            .populate('student_id', 'full_name username') 
+            // Sắp xếp: Những người vi phạm nhiều nhất lên đầu, hoặc sắp xếp theo thời gian vào thi
+            .sort({ violation_count: -1, start_time: -1 });
+
+        // Tính toán thống kê nhanh cho giáo viên 
+        const totalSessions = sessions.length;
+        const ongoingCount = sessions.filter(s => s.status === 'ongoing').length;
+        const lockedCount = sessions.filter(s => s.status === 'locked').length;
+
+        res.status(200).json({
+            exam_title: exam.title,
+            stats: {
+                total: totalSessions,
+                ongoing: ongoingCount,
+                locked: lockedCount
+            },
+            sessions: sessions
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

@@ -5,7 +5,8 @@ import {
     getExamById,
     updateExam,
     deleteExam,
-    joinExam
+    joinExam,
+    getExamSessions
 } from '../controllers/examController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -26,6 +27,8 @@ router.route('/:id')
     .get(protect, getExamById)
     .put(protect, authorize('teacher'), updateExam)
     .delete(protect, authorize('teacher'), deleteExam);
+
+router.route('/:id/sessions').get(protect,getExamSessions);
 
 // ========== SINH VIÊN THAM GIA BÀI THI ==========
 // POST /api/exams/:id/join - Sinh viên tham gia bài thi (chỉ sinh viên)
