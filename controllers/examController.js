@@ -147,40 +147,66 @@ export const deleteExam = async (req, res) => {
 };
 
 // @desc    Student joins an exam session
+// @desc    Student joins an exam session
 // @route   POST /api/exams/:id/join
-// @access  Private/Student
 export const joinExam = async (req, res) => {
     try {
         const exam = await Exam.findById(req.params.id);
-        if (!exam) {
-            return res.status(404).json({ message: 'Không tìm thấy bài thi' });
-        }
+        if (!exam) return res.status(404).json({ message: 'Không tìm thấy bài thi' });
 
-        // Kiểm tra xem sinh viên có nằm trong danh sách được phép tham gia
         const isAllowedStudent = exam.allowed_students.some((studentId) => studentId.toString() === req.user._id.toString());
-        if (!isAllowedStudent) {
-            return res.status(403).json({ message: 'Bạn không có quyền tham gia kỳ thi này.' });
-        }
+        if (!isAllowedStudent) return res.status(403).json({ message: 'Bạn không có quyền tham gia kỳ thi này.' });
 
-        // Kiểm tra xem kỳ thi có đang diễn ra hay không
         const now = new Date();
         if (now < exam.start_time || now > exam.end_time) {
             return res.status(403).json({ message: 'Kỳ thi hiện chưa bắt đầu hoặc đã kết thúc.' });
         }
 
-        // Tìm xem sinh viên đã có session thi chưa
-        // Nếu chưa có, tạo mới. Nếu có rồi thì trả về session cũ để tiếp tục.
         let session = await ExamSession.findOne({ exam_id: exam._id, student_id: req.user._id });
+        
         if (!session) {
+            // LẦN ĐẦU VÀO THI
             session = await ExamSession.create({
                 exam_id: exam._id,
                 student_id: req.user._id,
                 start_time: now,
                 status: 'ongoing',
+                violation_count: 0 // Khởi tạo số vi phạm
             });
-        }
+            return res.status(200).json(session);
+        } else {
+            // TRƯỜNG HỢP VÀO LẠI (RESUME)
+            // 1. Chặn ngay nếu bài đã nộp, bị hủy hoặc bị khóa
+            if (session.status === 'submitted' || session.status === 'abandoned' || session.status === 'locked') {
+                return res.status(403).json({ message: `Không thể vào thi. Trạng thái bài thi: ${session.status}` });
+            }
 
-        res.status(200).json(session);
+            // 2. Ghi nhận vi phạm kết nối lại
+            session.proctoring_logs.push({
+                event_type: 'reconnected', // Đảm bảo đúng tên event trong enum của Model
+                description: 'Kết nối lại sau khi bị gián đoạn/tải lại trang',
+                timestamp: now
+            });
+            
+            // 3. Tăng số đếm vi phạm
+            session.violation_count += 1;
+
+            // 4. KIỂM TRA KHÓA BÀI TỰ ĐỘNG
+            if (session.violation_count >= exam.max_violations) {
+                session.status = 'locked';
+                session.submit_time = now;
+                await session.save();
+                
+                return res.status(403).json({ 
+                    message: 'BÀI THI BỊ KHÓA: Bạn đã vượt quá số lần vi phạm cho phép (Bao gồm cả việc tải lại trang/mất kết nối)!',
+                    session: session // Trả về để frontend biết bài đã bị locked
+                });
+            }
+
+            // 5. Nếu chưa vượt quá giới hạn thì lưu log và cho thi tiếp
+            await session.save();
+            return res.status(200).json(session);
+        }
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
