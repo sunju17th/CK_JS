@@ -18,7 +18,7 @@ const answerSchema = new mongoose.Schema({
 const proctoringLogSchema = new mongoose.Schema({
     event_type: {
         type: String,
-        enum: ['tab_switch', 'window_blur', 'copy_paste_attempt', 'multiple_faces', 'no_face', 'reconnect'], // Liệt kê cố định các loại vi phạm
+        enum: ['tab_switch', 'window_blur', 'reconnect'], // Liệt kê cố định các loại vi phạm
         required: true,
     },
     timestamp: {
