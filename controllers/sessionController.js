@@ -9,28 +9,19 @@ import Question from '../models/Question.js';
 // @access  Private
 export const getSessions = async (req, res) => {
     try {
-        // Thiết lập phân trang: số lượng mỗi trang và trang hiện tại
-        const pageSize = Number(req.query.limit) || 10;
-        const page = Number(req.query.page) || 1;
-
         // Xây dựng query: nếu là sinh viên, chỉ lấy phiên thi của mình
         let query = {};
         if (req.user.role === 'student') {
             query.student_id = req.user._id;
         }
 
-        // Đếm tổng số phiên thi phù hợp
-        const count = await ExamSession.countDocuments(query);
-        // Lấy danh sách phiên thi với populate thông tin đề thi
+        // Lấy toàn bộ danh sách phiên thi với populate thông tin đề thi
         const sessions = await ExamSession.find(query)
-            .populate('exam_id', 'title')  // Chỉ lấy tiêu đề đề thi
-            .limit(pageSize)
-            .skip(pageSize * (page - 1));  // Bỏ qua các trang trước
+            .populate('exam_id', 'title');  // Chỉ lấy tiêu đề đề thi
 
-        // Trả về kết quả với thông tin phân trang
-        res.json({ sessions, page, pages: Math.ceil(count / pageSize), total: count });
+        return res.json(sessions);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
@@ -62,28 +53,51 @@ export const getSessionById = async (req, res) => {
 // @access  Private/Student
 export const addLog = async (req, res) => {
     try {
-        // Tìm phiên thi
-        const session = await ExamSession.findById(req.params.sessionId);
-        if (!session) return res.status(404).json({ message: 'Session not found' });
+        // 1. Tìm phiên thi và LẤY KÈM thông tin bài thi (để biết max_violations)
+        const session = await ExamSession.findById(req.params.sessionId)
+            .populate('exam_id', 'max_violations'); 
+
+        if (!session) return res.status(404).json({ message: 'Phiên thi không tồn tại' });
         
-        // Kiểm tra quyền: chỉ sinh viên sở hữu phiên thi mới được thêm log
         if (session.student_id.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'Not authorized' });
+            return res.status(403).json({ message: 'Bạn không có quyền thực hiện hành động này' });
         }
 
-        // Lấy dữ liệu từ request body
+        // Nếu bài đã nộp hoặc bị khóa rồi thì không ghi log nữa
+        if (session.status !== 'ongoing') {
+            return res.status(400).json({ message: 'Bài thi đã kết thúc, không thể ghi nhận thêm log.' });
+        }
+
         const { event_type, description } = req.body;
         
-        // Cập nhật phiên thi: thêm log vào mảng và tăng số lần vi phạm
-        await ExamSession.updateOne(
-            { _id: session._id },
-            { 
-                $push: { proctoring_logs: { event_type, description, timestamp: Date.now() } },  // Thêm log mới
-                $inc: { violation_count: 1 }  // Tăng số vi phạm
-            }
-        );
+        // 2. Cập nhật dữ liệu vào RAM
+        session.proctoring_logs.push({ event_type, description, timestamp: Date.now() });
+        session.violation_count += 1;
 
-        res.status(200).json({ message: 'Proctoring Log added' });
+        let responseMessage = 'Đã ghi nhận vi phạm';
+        let isLocked = false;
+
+        // 3. KIỂM TRA GIỚI HẠN VI PHẠM
+        // Nếu số lần vi phạm >= mức tối đa mà giáo viên cài đặt
+        if (session.violation_count >= session.exam_id.max_violations) {
+            session.status = 'locked'; // Tự động khóa bài
+            session.submit_time = Date.now(); // Chốt thời gian thu bài
+            
+            responseMessage = 'BÀI THI BỊ KHÓA: Bạn đã vượt quá số lần vi phạm cho phép!';
+            isLocked = true;
+        }
+
+        // 4. Lưu lại vào Database
+        await session.save();
+
+        // 5. Trả về Frontend
+        // FE sẽ đọc biến `isLocked`. Nếu là true, FE lập tức đá sinh viên ra khỏi màn hình thi!
+        res.status(200).json({ 
+            message: responseMessage,
+            violation_count: session.violation_count,
+            isLocked: isLocked 
+        });
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -116,15 +130,13 @@ export const submitSession = async (req, res) => {
             return res.status(400).json({ message: 'Dữ liệu bài làm không hợp lệ' });
         }
 
-        // QUY TRÌNH CHẤM ĐIỂM TỐI ƯU HÓA:
-        // 1. TỐI ƯU HÓA: Lấy toàn bộ mảng ID các câu hỏi mà sinh viên vừa làm
+        // 1. Lấy toàn bộ mảng ID các câu hỏi mà sinh viên vừa làm
         const questionIds = answers.map(ans => ans.question_id);
 
-        // 2. QUERY MỘT LẦN: Lấy toàn bộ thông tin câu hỏi từ database bằng toán tử $in
-        // Bất kể đề thi có 50 hay 100 câu, MongoDB cũng chỉ tốn đúng 1 nhịp xử lý
+        // 2. Lấy toàn bộ thông tin câu hỏi từ database bằng toán tử $in
         const questionsList = await Question.find({ _id: { $in: questionIds } });
 
-        // 3. TẠO TỪ ĐIỂN (Map): Để tra cứu câu hỏi cực nhanh với độ phức tạp O(1)
+        // 3. tra cứu câu hỏi 
         const questionMap = new Map();
         questionsList.forEach(q => {
             questionMap.set(q._id.toString(), q);
@@ -180,10 +192,10 @@ export const deleteSession = async (req, res) => {
         if (session) {
             // Xóa phiên thi
             await session.deleteOne();
-            res.json({ message: 'Session removed' });
+            res.json({ message: 'Phiên thi đã được xóa' });
         } else {
             // Nếu không tìm thấy phiên thi
-            res.status(404).json({ message: 'Session not found' });
+            res.status(404).json({ message: 'Phiên thi không tồn tại' });
         }
     } catch (error) {
         res.status(500).json({ message: error.message });
