@@ -2,6 +2,8 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './config/swagger.js';
 
 // Load biến môi trường
 dotenv.config();
@@ -20,6 +22,9 @@ connectDB();
 app.get('/', (req, res) => {
     res.send('API is running...');
 });
+
+// Swagger UI route
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Import các Routes
 import userRoutes from './routes/userRoutes.js';
